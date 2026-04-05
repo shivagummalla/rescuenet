@@ -68,12 +68,10 @@ No other packages are required. The Socket.IO JavaScript client is included in t
 
 ```
 rescuenet/
-├── server.py                  # Flask-SocketIO backend
-├── static/
-│   └── socket.io.min.js       # Bundled client library (no CDN)
-└── templates/
-    ├── rescuer.html           # Command dashboard
-    └── victim.html            # Victim signal interface
+── server.py              # Flask-SocketIO backend
+── socket.io.min.js       # Bundled client library (no CDN)
+── rescuer.html           # Command dashboard
+── victim.html            # Victim signal interface
 ```
 
 ---
