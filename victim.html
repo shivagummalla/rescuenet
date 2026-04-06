@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>RescueNet — Emergency</title>
+<script src="/static/socket.io.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{height:100%;}
+:root{
+  --bg:#020a06;--bg2:#071410;--bg3:#0a1f16;
+  --green:#00e87a;--green2:#00c45e;
+  --border:rgba(0,232,122,0.12);--border2:rgba(0,232,122,0.25);
+  --text:#c8f0dc;--text2:#4a8c65;--text3:#2a5c3f;
+  --red:#ff4757;--amber:#ffaa00;--blue:#3b9eff;
+  --font:-apple-system,'SF Pro Display','Inter',system-ui,sans-serif;
+  --mono:'SF Mono','Fira Code','Courier New',monospace;
+}
+body{font-family:var(--font);background:radial-gradient(ellipse at 50% -10%,#081c0f 0%,#020a06 55%);color:var(--text);min-height:100%;display:flex;flex-direction:column;align-items:center;padding:32px 20px 90px;}
+@keyframes fade-up{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes press{0%{transform:scale(1)}50%{transform:scale(0.965)}100%{transform:scale(1)}}
+@keyframes glow-blink{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes toast-in{from{transform:translateX(-50%) translateY(70px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
+@keyframes toast-out{from{transform:translateX(-50%) translateY(0);opacity:1}to{transform:translateX(-50%) translateY(70px);opacity:0}}
+@keyframes pulse-btn{0%,100%{box-shadow:0 0 0 0 rgba(0,232,122,0.4)}50%{box-shadow:0 0 0 10px rgba(0,232,122,0)}}
+@keyframes relay-glow{0%,100%{box-shadow:0 0 0 0 rgba(59,158,255,0.5)}50%{box-shadow:0 0 18px 4px rgba(59,158,255,0.35)}}
+
+/* HEADER */
+.header{width:100%;max-width:400px;text-align:center;margin-bottom:28px;animation:fade-up .45s ease both;}
+.brand-mark{width:48px;height:48px;border:1.5px solid var(--border2);border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;background:linear-gradient(135deg,rgba(0,232,122,.08),rgba(0,232,122,.02));}
+.brand-mark svg{width:22px;height:22px;}
+.brand-name{font-size:20px;font-weight:700;color:var(--green);letter-spacing:.1em;text-transform:uppercase;}
+.brand-sub{font-size:11px;color:var(--text2);margin-top:4px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;}
+
+/* ID CARD */
+.id-card{width:100%;max-width:400px;background:var(--bg2);border:1px solid var(--border2);border-radius:14px;padding:14px 18px;margin-bottom:14px;animation:fade-up .45s ease .1s both;display:flex;align-items:center;justify-content:space-between;}
+.id-label{font-size:9px;font-weight:600;color:var(--text3);letter-spacing:.14em;text-transform:uppercase;margin-bottom:5px;}
+.id-value{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--green);letter-spacing:.06em;}
+.id-badge{font-size:9px;font-weight:600;color:var(--green2);background:rgba(0,232,122,.1);border:1px solid rgba(0,232,122,.2);padding:4px 10px;border-radius:20px;letter-spacing:.08em;text-transform:uppercase;}
+
+/* GPS CARD */
+.gps-card{width:100%;max-width:400px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:16px;animation:fade-up .45s ease .2s both;transition:border-color .4s;}
+.gps-card.locked{border-color:rgba(0,232,122,.45);}
+.gps-card.error{border-color:rgba(255,71,87,.35);}
+.gps-top{display:flex;align-items:center;gap:12px;}
+.gps-dot{width:10px;height:10px;border-radius:50%;background:var(--text3);flex-shrink:0;transition:all .4s;}
+.gps-dot.searching{background:var(--amber);animation:glow-blink 1s infinite;}
+.gps-dot.locked{background:var(--green);box-shadow:0 0 8px var(--green);animation:glow-blink 3s infinite;}
+.gps-dot.error{background:var(--red);}
+.gps-status-text{font-size:12px;color:var(--text);font-weight:600;flex:1;}
+.gps-spinner{width:14px;height:14px;border:2px solid var(--border2);border-top-color:var(--amber);border-radius:50%;animation:spin .7s linear infinite;display:none;}
+.gps-spinner.show{display:block;}
+.gps-grid{display:none;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;}
+.gps-grid.show{display:grid;}
+.gps-field-lbl{font-size:8px;color:var(--text3);letter-spacing:.12em;text-transform:uppercase;font-weight:600;margin-bottom:3px;}
+.gps-field-val{font-family:var(--mono);font-size:11px;color:var(--text);}
+.gps-acc{grid-column:1/-1;display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid var(--border);margin-top:4px;}
+.acc-track{flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
+.acc-fill{height:100%;border-radius:2px;width:0%;transition:width .5s,background .5s;}
+.acc-lbl{font-size:9px;font-family:var(--mono);color:var(--text2);white-space:nowrap;min-width:60px;text-align:right;}
+
+/* LOC BUTTON */
+.loc-request-btn{width:100%;max-width:400px;margin-bottom:16px;padding:18px 20px;border-radius:16px;border:2px solid rgba(0,232,122,.5);background:rgba(0,232,122,.08);color:var(--green);font-family:var(--font);font-size:16px;font-weight:700;cursor:pointer;letter-spacing:.06em;text-transform:uppercase;display:flex;align-items:center;justify-content:center;gap:12px;animation:fade-up .45s ease .25s both,pulse-btn 2s ease-in-out infinite;transition:background .2s,border-color .2s;}
+.loc-request-btn:active{animation:press .2s ease;}
+.loc-request-btn:hover{background:rgba(0,232,122,.14);border-color:rgba(0,232,122,.8);}
+.loc-request-btn svg{width:20px;height:20px;flex-shrink:0;}
+.loc-request-btn.hidden{display:none;}
+
+/* STEPS CARD */
+.steps-card{width:100%;max-width:400px;background:rgba(255,71,87,.05);border:1px solid rgba(255,71,87,.2);border-radius:14px;padding:16px 18px;margin-bottom:16px;display:none;animation:fade-up .35s ease;}
+.steps-card.show{display:block;}
+.steps-title{font-size:11px;font-weight:700;color:var(--red);letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.steps-title svg{width:14px;height:14px;flex-shrink:0;}
+.step{display:flex;gap:10px;margin-bottom:12px;}
+.step:last-child{margin-bottom:0;}
+.step-num{width:20px;height:20px;border-radius:50%;background:rgba(255,71,87,.15);border:1px solid rgba(255,71,87,.3);color:var(--red);font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
+.step-text{font-size:11px;color:var(--text2);line-height:1.65;}
+.step-text b{color:var(--text);font-weight:600;}
+.step-url{font-family:var(--mono);font-size:10px;color:var(--amber);background:rgba(255,170,0,.08);border:1px solid rgba(255,170,0,.2);padding:3px 8px;border-radius:6px;display:inline-block;margin-top:4px;word-break:break-all;}
+.retry-btn{width:100%;margin-top:14px;padding:11px;border-radius:10px;border:1px solid rgba(0,232,122,.3);background:rgba(0,232,122,.06);color:var(--green);font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.08em;text-transform:uppercase;transition:background .18s;}
+.retry-btn:hover{background:rgba(0,232,122,.12);}
+
+/* ── MESH STATUS CARD ── */
+.mesh-card{width:100%;max-width:400px;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:14px 18px;margin-bottom:16px;animation:fade-up .45s ease .28s both;transition:border-color .4s,background .4s;}
+.mesh-card.relay-mode{border-color:rgba(59,158,255,.5);background:rgba(59,158,255,.04);animation:relay-glow 2s ease-in-out infinite;}
+.mesh-card.direct-mode{border-color:rgba(0,232,122,.3);}
+.mesh-top{display:flex;align-items:center;gap:10px;}
+.mesh-icon{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:rgba(0,232,122,.07);border:1px solid var(--border);flex-shrink:0;transition:background .4s,border-color .4s;}
+.mesh-card.relay-mode .mesh-icon{background:rgba(59,158,255,.1);border-color:rgba(59,158,255,.3);}
+.mesh-icon svg{width:15px;height:15px;color:var(--text2);transition:color .4s;}
+.mesh-card.relay-mode .mesh-icon svg{color:var(--blue);}
+.mesh-card.direct-mode .mesh-icon svg{color:var(--green);}
+.mesh-title{font-size:13px;font-weight:700;color:var(--text);flex:1;}
+.mesh-badge{font-size:9px;font-weight:700;padding:4px 10px;border-radius:20px;letter-spacing:.1em;text-transform:uppercase;border:1px solid;}
+.mesh-badge.direct{color:var(--green);background:rgba(0,232,122,.08);border-color:rgba(0,232,122,.3);}
+.mesh-badge.relay{color:var(--blue);background:rgba(59,158,255,.1);border-color:rgba(59,158,255,.35);}
+.mesh-sub{font-size:11px;color:var(--text2);margin-top:8px;line-height:1.5;}
+.mesh-sub.relay-info{color:var(--blue);}
+.peers-row{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap;}
+.peers-lbl{font-size:9px;color:var(--text3);letter-spacing:.1em;text-transform:uppercase;font-weight:600;}
+.peer-chip{font-size:10px;font-family:var(--mono);color:var(--text2);background:rgba(0,232,122,.05);border:1px solid var(--border);padding:3px 9px;border-radius:10px;}
+.peer-chip.active-relay{color:var(--blue);background:rgba(59,158,255,.08);border-color:rgba(59,158,255,.3);font-weight:700;}
+
+/* SIGNAL BUTTONS */
+.buttons{width:100%;max-width:400px;display:flex;flex-direction:column;gap:10px;}
+.action-btn{width:100%;padding:20px;border-radius:16px;border:1.5px solid;background:transparent;cursor:pointer;display:flex;align-items:center;gap:16px;transition:background .18s,border-color .18s,box-shadow .18s,opacity .25s;font-family:var(--font);text-align:left;}
+.action-btn:active{animation:press .22s ease;}
+.action-btn.blocked{opacity:.3;cursor:not-allowed;pointer-events:none;}
+.btn-sos{border-color:rgba(255,71,87,.4);background:rgba(255,71,87,.06);animation:fade-up .45s ease .3s both;}
+.btn-hlp{border-color:rgba(255,170,0,.38);background:rgba(255,170,0,.05);animation:fade-up .45s ease .38s both;}
+.btn-clr{border-color:rgba(0,232,122,.35);background:rgba(0,232,122,.05);animation:fade-up .45s ease .46s both;}
+.btn-sos:hover:not(.blocked){background:rgba(255,71,87,.12);border-color:rgba(255,71,87,.7);box-shadow:0 4px 24px rgba(255,71,87,.15);}
+.btn-hlp:hover:not(.blocked){background:rgba(255,170,0,.11);border-color:rgba(255,170,0,.65);box-shadow:0 4px 24px rgba(255,170,0,.12);}
+.btn-clr:hover:not(.blocked){background:rgba(0,232,122,.1);border-color:rgba(0,232,122,.6);box-shadow:0 4px 24px rgba(0,232,122,.12);}
+.btn-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.btn-sos .btn-dot{background:var(--red);box-shadow:0 0 8px rgba(255,71,87,.5);}
+.btn-hlp .btn-dot{background:var(--amber);box-shadow:0 0 8px rgba(255,170,0,.4);}
+.btn-clr .btn-dot{background:var(--green);box-shadow:0 0 8px rgba(0,232,122,.4);}
+.btn-body{flex:1;}
+.btn-title{font-size:18px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}
+.btn-sos .btn-title{color:var(--red);}
+.btn-hlp .btn-title{color:var(--amber);}
+.btn-clr .btn-title{color:var(--green);}
+.btn-desc{font-size:12px;color:var(--text2);margin-top:3px;}
+.btn-chev{width:16px;height:16px;opacity:.25;flex-shrink:0;}
+
+/* TOAST & STATUS */
+.toast{position:fixed;bottom:56px;left:50%;transform:translateX(-50%) translateY(70px);padding:12px 22px;border-radius:12px;font-size:13px;font-weight:600;min-width:220px;text-align:center;z-index:100;backdrop-filter:blur(20px);border:1px solid;opacity:0;pointer-events:none;letter-spacing:.02em;}
+.toast.show{animation:toast-in .3s cubic-bezier(0.34,1.56,0.64,1) forwards;}
+.toast.hide{animation:toast-out .3s ease forwards;}
+.toast.ok  {background:rgba(0,232,122,.1);border-color:rgba(0,232,122,.35);color:var(--green);}
+.toast.err {background:rgba(255,71,87,.1);border-color:rgba(255,71,87,.35);color:var(--red);}
+.toast.warn{background:rgba(255,170,0,.1);border-color:rgba(255,170,0,.35);color:var(--amber);}
+.toast.info{background:rgba(59,158,255,.1);border-color:rgba(59,158,255,.35);color:var(--blue);}
+.statusbar{position:fixed;bottom:0;left:0;right:0;height:44px;background:rgba(2,10,6,.95);border-top:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:8px;font-size:11px;color:var(--text2);font-weight:500;letter-spacing:.04em;backdrop-filter:blur(16px);}
+.sdot{width:6px;height:6px;border-radius:50%;background:var(--text3);transition:all .4s;}
+.sdot.on{background:var(--green);box-shadow:0 0 6px var(--green);animation:glow-blink 2.5s infinite;}
+.sdot.relay{background:var(--blue);box-shadow:0 0 6px var(--blue);}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="brand-mark">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--green)">
+      <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+    </svg>
+  </div>
+  <div class="brand-name">RescueNet</div>
+  <div class="brand-sub">Victim Emergency Device</div>
+</div>
+
+<div class="id-card">
+  <div>
+    <div class="id-label">Device ID</div>
+    <div class="id-value" id="device-id">—</div>
+  </div>
+  <div class="id-badge">AUTO-ASSIGNED</div>
+</div>
+
+<!-- GPS STATUS -->
+<div class="gps-card" id="gps-card">
+  <div class="gps-top">
+    <div class="gps-dot searching" id="gps-dot"></div>
+    <div class="gps-status-text" id="gps-status">Tap button below to enable location</div>
+    <div class="gps-spinner" id="gps-spinner"></div>
+  </div>
+  <div class="gps-grid" id="gps-grid">
+    <div><div class="gps-field-lbl">Latitude</div><div class="gps-field-val" id="gps-lat">—</div></div>
+    <div><div class="gps-field-lbl">Longitude</div><div class="gps-field-val" id="gps-lon">—</div></div>
+    <div class="gps-acc">
+      <div class="acc-track"><div class="acc-fill" id="acc-fill"></div></div>
+      <div class="acc-lbl" id="acc-lbl">— m</div>
+    </div>
+  </div>
+</div>
+
+<!-- MESH STATUS CARD -->
+<div class="mesh-card direct-mode" id="mesh-card">
+  <div class="mesh-top">
+    <div class="mesh-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/>
+        <path d="M7 11.5l10-5M7 12.5l10 5"/>
+      </svg>
+    </div>
+    <div class="mesh-title" id="mesh-title">Connected directly to server</div>
+    <div class="mesh-badge direct" id="mesh-badge">DIRECT</div>
+  </div>
+  <div class="mesh-sub" id="mesh-sub">Signals go straight to rescuer</div>
+  <div class="peers-row" id="peers-row">
+    <span class="peers-lbl">Peers</span>
+    <span id="peers-empty" style="font-size:10px;color:var(--text3)">None yet</span>
+  </div>
+</div>
+
+<!-- TAP TO ALLOW LOCATION -->
+<button class="loc-request-btn" id="loc-request-btn" onclick="requestLocation()">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+  </svg>
+  TAP TO ALLOW LOCATION
+</button>
+
+<!-- MANUAL STEPS -->
+<div class="steps-card" id="steps-card">
+  <div class="steps-title">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    Location blocked — follow these steps
+  </div>
+  <div class="step"><div class="step-num">1</div><div class="step-text">In Chrome, tap the <b>⋮ menu</b> (top right) → tap <b>Settings</b></div></div>
+  <div class="step"><div class="step-num">2</div><div class="step-text">Go to <b>Site Settings</b> → tap <b>Location</b></div></div>
+  <div class="step"><div class="step-num">3</div><div class="step-text">Find this address and set it to <b>Allow</b>:<br><span class="step-url" id="this-url">—</span></div></div>
+  <div class="step"><div class="step-num">4</div><div class="step-text"><b>OR</b> open Chrome and go to:<br><span class="step-url">chrome://flags/#unsafely-treat-insecure-origin-as-secure</span><br>Add this site's address, set to <b>Enabled</b>, relaunch Chrome</div></div>
+  <button class="retry-btn" onclick="retryLocation()">↺ Retry Location After Allowing</button>
+</div>
+
+<!-- SIGNAL BUTTONS -->
+<div class="buttons">
+  <button class="action-btn btn-sos blocked" id="btn-sos" onclick="send('SOS')">
+    <div class="btn-dot"></div>
+    <div class="btn-body"><div class="btn-title">SOS</div><div class="btn-desc">Critical emergency — immediate rescue needed</div></div>
+    <svg class="btn-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+  </button>
+  <button class="action-btn btn-hlp blocked" id="btn-hlp" onclick="send('HELP')">
+    <div class="btn-dot"></div>
+    <div class="btn-body"><div class="btn-title">Help</div><div class="btn-desc">Needs assistance — non-critical</div></div>
+    <svg class="btn-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+  </button>
+  <button class="action-btn btn-clr blocked" id="btn-clr" onclick="send('CLEAR')">
+    <div class="btn-dot"></div>
+    <div class="btn-body"><div class="btn-title">Clear</div><div class="btn-desc">Situation resolved — I am safe</div></div>
+    <svg class="btn-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+  </button>
+</div>
+
+<div class="statusbar">
+  <div class="sdot" id="conn-dot"></div>
+  <span id="conn-text">Connecting…</span>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Device ID ──────────────────────────────────
+function getDeviceID() {
+  let id = localStorage.getItem('rescuenet_device_id');
+  if (!id) {
+    const ts   = Date.now().toString(36).toUpperCase().slice(-4);
+    const rand = Math.random().toString(36).substring(2,6).toUpperCase();
+    id = 'V-' + ts + rand;
+    localStorage.setItem('rescuenet_device_id', id);
+  }
+  return id;
+}
+const DEVICE_ID = getDeviceID();
+document.getElementById('device-id').textContent = DEVICE_ID;
+document.getElementById('this-url').textContent  = window.location.origin + '/victim';
+
+// ── State ───────────────────────────────────────
+let userLat = null, userLon = null, gpsReady = false;
+let watchId = null;
+let isBlocked = false;       // server blocked us → must relay
+let relayTarget = null;      // which peer to relay through
+let otherVictims = {};       // id -> victim info
+
+// ── Socket ──────────────────────────────────────
+const socket = io({ transports: ['websocket', 'polling'] });
+
+socket.on('connect', () => {
+  document.getElementById('conn-dot').classList.add('on');
+  document.getElementById('conn-dot').classList.remove('relay');
+  document.getElementById('conn-text').textContent = 'Connected to RescueNet server';
+  if (gpsReady) registerWithServer();
+});
+
+socket.on('disconnect', () => {
+  document.getElementById('conn-dot').classList.remove('on');
+  document.getElementById('conn-text').textContent = 'Disconnected…';
+});
+
+// Server tells us our block status
+socket.on('block_status', data => {
+  isBlocked = data.blocked;
+  if (isBlocked) {
+    setMeshMode('relay');
+    showToast('Switched to MESH RELAY mode', 'info');
+  } else {
+    setMeshMode('direct');
+  }
+});
+
+// Server sends updated victim list — find available relay peers
+socket.on('victim_list', victims => {
+  otherVictims = {};
+  victims.forEach(v => {
+    if (v.id !== DEVICE_ID && !v.blocked) {
+      otherVictims[v.id] = v;
+    }
+  });
+  updatePeersUI();
+  // Auto-pick a relay target
+  const peers = Object.keys(otherVictims);
+  relayTarget = peers.length ? peers[0] : null;
+});
+
+// A peer is asking us to relay their signal to the server
+socket.on('please_relay', data => {
+  const sig    = data.signal;
+  const fromId = data.from_id;
+  console.log('[RELAY] Forwarding signal from', fromId);
+  showToast('Relaying signal from ' + fromId.slice(-6), 'info');
+  socket.emit('relay_signal', {
+    signal:   sig,
+    relay_id: DEVICE_ID,
+  });
+});
+
+// ── GPS ─────────────────────────────────────────
+function setGPSSearching() {
+  document.getElementById('gps-card').className    = 'gps-card';
+  document.getElementById('gps-dot').className     = 'gps-dot searching';
+  document.getElementById('gps-spinner').className = 'gps-spinner show';
+  document.getElementById('gps-status').textContent = 'Acquiring GPS…';
+}
+
+function onGPSSuccess(pos) {
+  userLat  = pos.coords.latitude;
+  userLon  = pos.coords.longitude;
+  const acc = Math.round(pos.coords.accuracy);
+  gpsReady = true;
+
+  document.getElementById('loc-request-btn').className = 'loc-request-btn hidden';
+  document.getElementById('steps-card').className = 'steps-card';
+  document.getElementById('gps-card').className    = 'gps-card locked';
+  document.getElementById('gps-dot').className     = 'gps-dot locked';
+  document.getElementById('gps-spinner').className = 'gps-spinner';
+  document.getElementById('gps-status').textContent = 'GPS locked — real location active';
+  document.getElementById('gps-grid').className    = 'gps-grid show';
+  document.getElementById('gps-lat').textContent   = userLat.toFixed(6) + '°N';
+  document.getElementById('gps-lon').textContent   = userLon.toFixed(6) + '°E';
+
+  const pct = Math.max(0, Math.min(100, 100 - (acc/200)*100));
+  const col = acc<=15?'#00e87a':acc<=60?'#ffaa00':'#ff4757';
+  document.getElementById('acc-fill').style.width      = pct+'%';
+  document.getElementById('acc-fill').style.background = col;
+  document.getElementById('acc-lbl').textContent       = '±'+acc+' m';
+
+  ['btn-sos','btn-hlp','btn-clr'].forEach(id => document.getElementById(id).classList.remove('blocked'));
+
+  if (socket.connected) registerWithServer();
+}
+
+function onGPSError(err) {
+  gpsReady = false;
+  document.getElementById('gps-card').className    = 'gps-card error';
+  document.getElementById('gps-dot').className     = 'gps-dot error';
+  document.getElementById('gps-spinner').className = 'gps-spinner';
+  if (err.code === 1) {
+    document.getElementById('gps-status').textContent = 'Location permission denied';
+    document.getElementById('loc-request-btn').className = 'loc-request-btn hidden';
+    document.getElementById('steps-card').className = 'steps-card show';
+  } else {
+    document.getElementById('gps-status').textContent = 'GPS signal lost — retrying…';
+    document.getElementById('loc-request-btn').className = 'loc-request-btn';
+  }
+  ['btn-sos','btn-hlp','btn-clr'].forEach(id => document.getElementById(id).classList.add('blocked'));
+}
+
+function requestLocation() {
+  if (!navigator.geolocation) { showToast('Geolocation not supported','err'); return; }
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  setGPSSearching();
+  document.getElementById('loc-request-btn').className = 'loc-request-btn hidden';
+  watchId = navigator.geolocation.watchPosition(onGPSSuccess, onGPSError,
+    { enableHighAccuracy:true, timeout:20000, maximumAge:0 });
+}
+
+function retryLocation() {
+  document.getElementById('steps-card').className = 'steps-card';
+  document.getElementById('loc-request-btn').className = 'loc-request-btn';
+  requestLocation();
+}
+
+function registerWithServer() {
+  socket.emit('register_victim', {
+    id:  DEVICE_ID,
+    lat: userLat || 0,
+    lon: userLon || 0,
+  });
+}
+
+// ── Mesh UI ─────────────────────────────────────
+function setMeshMode(mode) {
+  const card  = document.getElementById('mesh-card');
+  const badge = document.getElementById('mesh-badge');
+  const title = document.getElementById('mesh-title');
+  const sub   = document.getElementById('mesh-sub');
+  const dot   = document.getElementById('conn-dot');
+  const ctxt  = document.getElementById('conn-text');
+
+  if (mode === 'direct') {
+    card.className  = 'mesh-card direct-mode';
+    badge.className = 'mesh-badge direct'; badge.textContent = 'DIRECT';
+    title.textContent = 'Connected directly to server';
+    sub.className   = 'mesh-sub'; sub.textContent = 'Signals go straight to rescuer';
+    dot.className   = 'sdot on';
+    ctxt.textContent = 'Connected to RescueNet server';
+  } else {
+    card.className  = 'mesh-card relay-mode';
+    badge.className = 'mesh-badge relay'; badge.textContent = 'MESH RELAY';
+    title.textContent = 'Relaying through peer';
+    sub.className   = 'mesh-sub relay-info';
+    sub.textContent = relayTarget
+      ? 'Your signals → ' + relayTarget.slice(-6) + ' → server'
+      : 'Waiting for a relay peer…';
+    dot.className   = 'sdot relay';
+    ctxt.textContent = 'Via mesh relay';
+  }
+  updatePeersUI();
+}
+
+function updatePeersUI() {
+  const row   = document.getElementById('peers-row');
+  const empty = document.getElementById('peers-empty');
+  // Remove old chips
+  row.querySelectorAll('.peer-chip').forEach(el => el.remove());
+  const peers = Object.keys(otherVictims);
+  if (!peers.length) {
+    if (empty) empty.style.display = '';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  peers.forEach(id => {
+    const chip = document.createElement('span');
+    chip.className = 'peer-chip' + (id === relayTarget && isBlocked ? ' active-relay' : '');
+    chip.textContent = id.slice(-6);
+    row.appendChild(chip);
+  });
+  // Update relay sub text
+  if (isBlocked && relayTarget) {
+    document.getElementById('mesh-sub').textContent =
+      'Your signals → ' + relayTarget.slice(-6) + ' → server';
+  }
+}
+
+// ── Send signal ─────────────────────────────────
+const MSGS = {
+  SOS:   'Critical emergency — immediate rescue needed',
+  HELP:  'Needs assistance — non-critical',
+  CLEAR: 'Situation resolved — victim is safe',
+};
+
+function send(type) {
+  if (!gpsReady) { showToast('GPS not ready', 'warn'); return; }
+
+  const signal = {
+    id:      DEVICE_ID,
+    name:    DEVICE_ID,
+    type,
+    lat:     userLat,
+    lon:     userLon,
+    message: MSGS[type],
+    rssi:    -60 - Math.floor(Math.random()*35),
+  };
+
+  if (!isBlocked) {
+    // Normal direct send
+    socket.emit('send_signal', signal);
+    showToast(type + ' sent directly ✓', 'ok');
+    return;
+  }
+
+  // We are blocked — must relay through a peer
+  if (!relayTarget) {
+    showToast('No relay peer available!', 'err');
+    return;
+  }
+
+  // Ask server to forward request to our relay peer
+  socket.emit('request_relay', { relay_to: relayTarget, signal });
+  showToast('⟳ Sent via ' + relayTarget.slice(-6) + ' (mesh relay)', 'info');
+}
+
+// ── Toast ────────────────────────────────────────
+let toastTimer;
+function showToast(msg, cls) {
+  const el = document.getElementById('toast');
+  clearTimeout(toastTimer);
+  el.textContent = msg; el.className = `toast ${cls} show`;
+  toastTimer = setTimeout(() => { el.className = `toast ${cls} hide`; }, 3500);
+}
+</script>
+</body>
+</html>

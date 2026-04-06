@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RescueNet — Command Dashboard</title>
+<script src="/static/socket.io.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+
+:root {
+  --bg:      #03100a;
+  --bg2:     #061810;
+  --bg3:     #081f15;
+  --bg4:     #0c2a1c;
+  --green:   #00f081;
+  --green2:  #00c863;
+  --green3:  #00a84f;
+  --border:  rgba(0,240,129,0.11);
+  --border2: rgba(0,240,129,0.24);
+  --border3: rgba(0,240,129,0.42);
+  --text:    #d4f5e4;
+  --text2:   #5eaa7e;
+  --text3:   #2e6645;
+  --red:     #ff3b4e;
+  --amber:   #ffb800;
+  --blue:    #3b9eff;
+  --blue:    #3b9eff;
+  --font:    -apple-system, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
+  --mono:    'SF Mono', 'Menlo', 'Monaco', monospace;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── TOPBAR ─────────────────────────────────── */
+.topbar {
+  height: 50px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.logo { display: flex; align-items: center; gap: 10px; }
+.logo-icon {
+  width: 30px; height: 30px;
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,240,129,0.07);
+}
+.logo-icon svg { width: 15px; height: 15px; color: var(--green); }
+.logo-name { font-size: 14px; font-weight: 700; color: var(--green); letter-spacing: -0.01em; }
+.logo-sep  { color: var(--text3); font-size: 14px; margin: 0 2px; }
+.logo-sub  { font-size: 12px; color: var(--text2); font-weight: 400; }
+.topbar-spacer { flex: 1; }
+#clock { font-family: var(--mono); font-size: 12px; color: var(--text2); letter-spacing: 0.04em; }
+
+.pill {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 11px; border-radius: 20px;
+  font-size: 11px; font-weight: 500;
+  border: 1px solid; font-family: var(--font);
+}
+.pill-live { background: rgba(255,59,78,0.09); border-color: rgba(255,59,78,0.28); color: var(--red); }
+.pill-dot-red { width: 6px; height: 6px; border-radius: 50%; background: var(--red); animation: blink 1.8s infinite; }
+.pill-conn { background: transparent; border-color: var(--border); color: var(--text3); transition: all 0.3s; }
+.pill-conn.on { background: rgba(0,240,129,0.07); border-color: var(--border2); color: var(--green); }
+.pill-dot-conn { width: 6px; height: 6px; border-radius: 50%; background: var(--text3); transition: background 0.3s; }
+.pill-conn.on .pill-dot-conn { background: var(--green); }
+
+@keyframes blink   { 0%,100%{opacity:1} 50%{opacity:.2} }
+@keyframes fade-in { from{opacity:0} to{opacity:1} }
+@keyframes slide-in{ from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
+@keyframes bump    { 0%{transform:scale(1)} 50%{transform:scale(1.12)} 100%{transform:scale(1)} }
+
+.top-action {
+  padding: 6px 14px; border-radius: 7px;
+  border: 1px solid var(--border);
+  background: transparent; color: var(--text2);
+  font-size: 12px; font-weight: 500; cursor: pointer;
+  transition: all 0.15s; font-family: var(--font);
+}
+.top-action:hover { border-color: var(--border2); color: var(--green); background: rgba(0,240,129,0.06); }
+.top-action-sim { background: rgba(0,240,129,0.07); border-color: var(--border2); color: var(--green); }
+.top-action-sim.running { background: rgba(255,59,78,0.08); border-color: rgba(255,59,78,0.3); color: var(--red); }
+
+/* ─── LAYOUT ─────────────────────────────────── */
+.layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ─── MAP AREA ────────────────────────────────── */
+.map-area {
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 16px;
+  overflow: hidden;
+}
+
+/* subtle bg grid for the outer area */
+.map-area::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(0,240,129,0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,240,129,0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+}
+
+/* ─── MAP BOX ─────────────────────────────────── */
+.map-box {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: calc(100% - 0px);
+  border: 1px solid var(--border2);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #020c07;
+  box-shadow:
+    0 0 0 1px rgba(0,240,129,0.05),
+    0 8px 40px rgba(0,0,0,0.6),
+    inset 0 1px 0 rgba(0,240,129,0.08);
+}
+
+/* corner accents */
+.map-box::before, .map-box::after {
+  content: '';
+  position: absolute;
+  width: 18px; height: 18px;
+  border-color: var(--green2);
+  border-style: solid;
+  z-index: 20;
+  pointer-events: none;
+}
+.map-box::before { top: 10px; left: 10px; border-width: 2px 0 0 2px; border-radius: 4px 0 0 0; }
+.map-box::after  { bottom: 10px; right: 10px; border-width: 0 2px 2px 0; border-radius: 0 0 4px 0; }
+
+/* inner grid */
+.map-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(0,240,129,0.035) 1px,transparent 1px),linear-gradient(90deg,rgba(0,240,129,0.035) 1px,transparent 1px); background-size: 52px 52px; pointer-events: none; border-radius: 14px; }
+.map-grid-fine { position: absolute; inset: 0; background-image: linear-gradient(rgba(0,240,129,0.012) 1px,transparent 1px),linear-gradient(90deg,rgba(0,240,129,0.012) 1px,transparent 1px); background-size: 10.4px 10.4px; pointer-events: none; }
+
+/* the pannable/zoomable canvas inside the box */
+.map-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  cursor: grab;
+  user-select: none;
+}
+.map-canvas.panning { cursor: grabbing; }
+
+#map-svg, #signal-svg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+.markers-layer {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+
+/* ─── ZOOM CONTROLS ───────────────────────────── */
+.zoom-controls {
+  position: absolute;
+  bottom: 54px; right: 14px;
+  display: flex; flex-direction: column; gap: 4px;
+  z-index: 30;
+}
+.zoom-btn {
+  width: 32px; height: 32px;
+  background: rgba(6,24,16,0.92);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  color: var(--green);
+  font-size: 18px; font-weight: 400;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+  font-family: var(--font);
+  line-height: 1;
+}
+.zoom-btn:hover { background: rgba(0,240,129,0.1); border-color: var(--border3); }
+.zoom-level {
+  width: 32px; height: 22px;
+  background: rgba(6,24,16,0.8);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: var(--text3); font-family: var(--mono);
+}
+
+/* fit-all button */
+.fit-btn {
+  position: absolute;
+  bottom: 14px; right: 14px;
+  padding: 5px 11px;
+  background: rgba(6,24,16,0.92);
+  border: 1px solid var(--border2);
+  border-radius: 7px;
+  color: var(--green2);
+  font-size: 10px; font-weight: 500;
+  cursor: pointer; transition: all 0.15s;
+  font-family: var(--font);
+  z-index: 30;
+  display: flex; align-items: center; gap: 5px;
+}
+.fit-btn:hover { background: rgba(0,240,129,0.1); color: var(--green); }
+
+/* map header overlay */
+.map-header {
+  position: absolute; top: 12px; left: 14px;
+  display: flex; align-items: center; gap: 8px;
+  z-index: 20; pointer-events: none;
+}
+.map-title {
+  font-size: 10px; font-weight: 600; color: var(--text2);
+  font-family: var(--font); letter-spacing: 0.02em;
+  background: rgba(2,10,6,.85); border: 1px solid var(--border);
+  padding: 3px 9px; border-radius: 5px;
+}
+.map-coords-display {
+  font-size: 9px; color: var(--text3); font-family: var(--mono);
+  background: rgba(2,10,6,.85); border: 1px solid var(--border);
+  padding: 3px 9px; border-radius: 5px;
+}
+
+/* ─── MARKERS ─────────────────────────────────── */
+.vmarker {
+  position: absolute; transform: translate(-50%,-50%);
+  pointer-events: all; cursor: pointer;
+  animation: fade-in 0.2s ease; z-index: 10;
+}
+.vmarker-core {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8px; font-weight: 700; font-family: var(--mono);
+  color: #fff; border: 1.5px solid rgba(255,255,255,0.3);
+  transition: transform 0.15s; position: relative;
+}
+.vmarker:hover .vmarker-core { transform: scale(1.2); }
+.vmarker.sos   .vmarker-core { background: #c0162a; border-color: rgba(255,59,78,0.5); box-shadow: 0 0 12px rgba(255,59,78,0.45); }
+.vmarker.help  .vmarker-core { background: #b07a00; border-color: rgba(255,184,0,0.5);  box-shadow: 0 0 12px rgba(255,184,0,0.4); }
+.vmarker.clear .vmarker-core { background: #006e38; border-color: rgba(0,200,99,0.5);   box-shadow: 0 0 12px rgba(0,200,99,0.35); }
+
+.vmarker-tip {
+  position: absolute; bottom: 34px; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(3,12,7,.97); border: 1px solid var(--border2);
+  border-radius: 9px; padding: 9px 13px;
+  font-size: 11px; font-family: var(--font);
+  color: var(--text); white-space: nowrap; line-height: 1.7;
+  opacity: 0; transition: opacity .12s; pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.7); min-width: 160px; z-index: 100;
+}
+.vmarker:hover .vmarker-tip { opacity: 1; }
+.vmarker-tip .tip-type { font-weight: 600; margin-bottom: 1px; font-size: 11px; }
+.vmarker-tip .tip-type.sos   { color: var(--red); }
+.vmarker-tip .tip-type.help  { color: var(--amber); }
+.vmarker-tip .tip-type.clear { color: var(--green); }
+.vmarker-tip .tip-id    { font-size: 10px; font-family: var(--mono); color: var(--text2); }
+.vmarker-tip .tip-coord { font-size: 9px; font-family: var(--mono); color: var(--text3); }
+.vmarker-tip .tip-maps  { font-size: 10px; color: var(--green); margin-top: 5px; border-top: 1px solid var(--border); padding-top: 5px; font-weight: 500; }
+
+.base-marker { position: absolute; transform: translate(-50%,-50%); z-index: 8; pointer-events: none; }
+.base-core { width: 30px; height: 30px; border-radius: 9px; background: linear-gradient(135deg,#061a0e,#0b2a1a); border: 1.5px solid var(--green3); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 14px rgba(0,168,79,0.3); }
+.base-core svg { width: 14px; height: 14px; color: var(--green); }
+.base-label { position: absolute; bottom: 35px; left: 50%; transform: translateX(-50%); background: rgba(3,12,7,.95); border: 1px solid var(--border2); border-radius: 5px; padding: 3px 9px; font-size: 10px; font-family: var(--font); font-weight: 600; color: var(--green); white-space: nowrap; letter-spacing: 0; }
+
+/* ─── LEGEND ──────────────────────────────────── */
+.map-legend {
+  position: absolute; bottom: 14px; left: 14px;
+  background: rgba(3,12,7,.9); border: 1px solid var(--border);
+  border-radius: 10px; padding: 11px 14px; z-index: 20;
+}
+.leg-row { display: flex; align-items: center; gap: 9px; font-size: 11px; color: var(--text2); font-family: var(--font); margin-bottom: 6px; font-weight: 400; }
+.leg-row:last-child { margin-bottom: 0; }
+.leg-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+.coord-text { font-size: 9px; fill: rgba(0,240,129,0.22); font-family: monospace; }
+
+/* ─── RIGHT PANEL ─────────────────────────────── */
+.panel {
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+/* stats row */
+.stats { display: grid; grid-template-columns: repeat(3,1fr); border-bottom: 1px solid var(--border); }
+.stat { padding: 16px 8px; text-align: center; border-right: 1px solid var(--border); }
+.stat:last-child { border-right: none; }
+.stat-num { font-size: 34px; font-weight: 700; font-family: var(--font); line-height: 1; letter-spacing: -0.03em; }
+.stat-lbl { font-size: 11px; color: var(--text3); font-family: var(--font); margin-top: 4px; font-weight: 400; }
+.stat.sos  .stat-num { color: var(--red); }
+.stat.help .stat-num { color: var(--amber); }
+.stat.clr  .stat-num { color: var(--green); }
+.stat.bump .stat-num { animation: bump 0.25s ease; }
+
+/* active nodes row */
+.active-band {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.active-label { font-size: 11px; color: var(--text2); font-weight: 500; }
+.active-nodes { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+.node-chip {
+  font-size: 9px; font-family: var(--mono);
+  padding: 2px 7px; border-radius: 4px; border: 1px solid;
+  font-weight: 600;
+}
+.node-chip.sos   { background: rgba(255,59,78,.1);  color: var(--red);   border-color: rgba(255,59,78,.25); }
+.node-chip.help  { background: rgba(255,184,0,.09); color: var(--amber); border-color: rgba(255,184,0,.25); }
+.node-chip.clear { background: rgba(0,240,129,.07); color: var(--green); border-color: rgba(0,240,129,.2); }
+.active-empty { font-size: 10px; color: var(--text3); font-family: var(--font); }
+
+/* signal band */
+.signal-band { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--border); }
+.signal-label { font-size: 11px; color: var(--text2); font-weight: 500; }
+.rssi-bars { display: flex; align-items: flex-end; gap: 3px; height: 14px; }
+.rssi-bar { width: 5px; border-radius: 2px; background: var(--bg4); transition: all 0.35s; }
+.rssi-bar.on { background: var(--green2); }
+.rssi-bar:nth-child(1){height:3px} .rssi-bar:nth-child(2){height:6px} .rssi-bar:nth-child(3){height:9px} .rssi-bar:nth-child(4){height:12px} .rssi-bar:nth-child(5){height:14px}
+.rssi-val { margin-left: auto; font-size: 10px; color: var(--text2); font-family: var(--mono); }
+
+/* log */
+.log-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 16px; border-bottom: 1px solid var(--border); }
+.log-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.log-count { font-size: 11px; color: var(--text3); font-family: var(--font); }
+.log-list { flex: 1; overflow-y: auto; padding: 5px; }
+.log-list::-webkit-scrollbar { width: 3px; }
+.log-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.log-empty { padding: 32px 16px; text-align: center; color: var(--text3); font-size: 12px; line-height: 1.9; }
+.log-row { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: 8px; margin-bottom: 3px; border: 1px solid transparent; cursor: pointer; transition: background 0.12s; animation: slide-in 0.18s ease; }
+.log-row:hover { background: rgba(0,240,129,0.05); border-color: var(--border); }
+.log-tag { flex-shrink: 0; width: 46px; padding: 3px 0; text-align: center; border-radius: 5px; font-size: 10px; font-weight: 600; letter-spacing: 0; }
+.t-sos   { background: rgba(255,59,78,.12);  color: var(--red);   border: 1px solid rgba(255,59,78,.25); }
+.t-help  { background: rgba(255,184,0,.1);   color: var(--amber); border: 1px solid rgba(255,184,0,.25); }
+.t-clear { background: rgba(0,240,129,.08);  color: var(--green); border: 1px solid rgba(0,240,129,.22); }
+
+/* ── MESH TOPOLOGY PANEL ── */
+.mesh-band { padding: 9px 16px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.mesh-band-title { font-size: 9px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--text3); display: flex; align-items: center; justify-content: space-between; }
+.mesh-node-count { font-family: var(--mono); font-size: 10px; color: var(--blue); }
+.mesh-nodes-row { display: flex; flex-direction: column; gap: 5px; }
+.victim-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(0,240,129,.03); border: 1px solid var(--border); }
+.victim-row.is-blocked { background: rgba(255,59,78,.05); border-color: rgba(255,59,78,.2); }
+.victim-id { font-family: var(--mono); font-size: 11px; color: var(--text); flex: 1; }
+.victim-status { font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 2px 7px; border-radius: 8px; }
+.victim-status.direct { color: var(--green); background: rgba(0,240,129,.08); }
+.victim-status.relay  { color: var(--blue);  background: rgba(59,158,255,.1); }
+.block-btn { font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 4px 9px; border-radius: 7px; border: 1px solid rgba(255,59,78,.4); color: var(--red); background: rgba(255,59,78,.07); cursor: pointer; font-family: var(--font); transition: background .15s; }
+.block-btn:hover { background: rgba(255,59,78,.15); }
+.block-btn.unblock { border-color: rgba(0,240,129,.3); color: var(--green); background: rgba(0,240,129,.06); }
+.block-btn.unblock:hover { background: rgba(0,240,129,.12); }
+.log-hops { font-size: 9px; color: var(--blue); font-family: var(--mono); margin-top: 1px; display: none; }
+.log-hops.show { display: block; }
+.log-body { flex: 1; min-width: 0; }
+.log-id  { font-size: 11px; font-weight: 600; color: var(--text); font-family: var(--mono); }
+.log-pos { font-size: 9px; color: var(--text3); font-family: var(--mono); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-msg { font-size: 11px; color: var(--text2); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 400; }
+.log-meta { flex-shrink: 0; text-align: right; }
+.log-time { font-size: 9px; color: var(--text3); font-family: var(--mono); }
+.log-maps-btn { display: block; font-size: 10px; color: var(--green); margin-top: 3px; opacity: 0; transition: opacity 0.12s; font-weight: 500; }
+.log-row:hover .log-maps-btn { opacity: 1; }
+
+/* ─── BOTTOM BAR ──────────────────────────────── */
+.bottombar {
+  height: 28px; background: var(--bg2);
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 16px; gap: 20px; flex-shrink: 0;
+}
+.bb { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text3); font-family: var(--font); font-weight: 400; }
+.bb-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
+.bb-grow { flex: 1; }
+.bb-mono { font-family: var(--mono); font-size: 10px; }
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+      </svg>
+    </div>
+    <div>
+      <span class="logo-name">RescueNet</span>
+      <span class="logo-sep"> · </span>
+      <span class="logo-sub">Command Dashboard</span>
+    </div>
+  </div>
+  <div class="topbar-spacer"></div>
+  <div id="clock">00:00:00</div>
+  <div class="pill pill-live"><div class="pill-dot-red"></div>Live</div>
+  <div class="pill pill-conn" id="conn-pill"><div class="pill-dot-conn"></div><span id="conn-text">Offline</span></div>
+  <button class="top-action top-action-sim" id="sim-btn" onclick="toggleSim()">Simulate</button>
+  <button class="top-action" onclick="clearAll()">Clear All</button>
+</div>
+
+<!-- LAYOUT -->
+<div class="layout">
+
+  <!-- MAP AREA -->
+  <div class="map-area" id="map-area">
+    <div class="map-box" id="map-box">
+      <div class="map-grid"></div>
+      <div class="map-grid-fine"></div>
+
+      <!-- pannable canvas -->
+      <div class="map-canvas" id="map-canvas">
+        <svg id="map-svg" xmlns="http://www.w3.org/2000/svg"><g id="roads"></g><g id="coord-labels"></g></svg>
+        <svg id="signal-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div class="markers-layer" id="markers-layer">
+          <div class="base-marker" id="base-marker">
+            <div class="base-core">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2a3 3 0 0 0-3 3c0 1.5.8 2.8 2 3.4V20h2V8.4c1.2-.6 2-1.9 2-3.4a3 3 0 0 0-3-3z"/>
+              </svg>
+            </div>
+            <div class="base-label">Base Station</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- overlays (not panned) -->
+      <div class="map-header">
+        <div class="map-title">Operational Area</div>
+        <div class="map-coords-display" id="map-coords-display">—</div>
+      </div>
+
+      <div class="zoom-controls">
+        <button class="zoom-btn" onclick="zoomIn()">+</button>
+        <div class="zoom-level" id="zoom-level">1×</div>
+        <button class="zoom-btn" onclick="zoomOut()">−</button>
+      </div>
+
+      <button class="fit-btn" onclick="fitAll()">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 3h6M3 3v6M21 3h-6M21 3v6M3 21h6M3 21v-6M21 21h-6M21 21v-6"/></svg>
+        Fit All
+      </button>
+
+      <div class="map-legend">
+        <div class="leg-row"><div class="leg-dot" style="background:var(--red)"></div>SOS — Emergency</div>
+        <div class="leg-row"><div class="leg-dot" style="background:var(--amber)"></div>Help — Assistance</div>
+        <div class="leg-row"><div class="leg-dot" style="background:var(--green)"></div>Clear — Safe</div>
+        <div class="leg-row"><div class="leg-dot" style="background:var(--green2);border-radius:2px;width:10px;height:7px"></div>Base Station</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="panel">
+    <div class="stats">
+      <div class="stat sos"  id="stat-sos"><div class="stat-num" id="c-sos">0</div><div class="stat-lbl">SOS</div></div>
+      <div class="stat help" id="stat-help"><div class="stat-num" id="c-help">0</div><div class="stat-lbl">Help</div></div>
+      <div class="stat clr"  id="stat-clr"><div class="stat-num" id="c-clr">0</div><div class="stat-lbl">Clear</div></div>
+    </div>
+
+    <!-- active nodes chips -->
+    <div class="active-band">
+      <span class="active-label">Active Nodes</span>
+      <div class="active-nodes" id="active-nodes"><span class="active-empty">None</span></div>
+    </div>
+
+    <!-- mesh topology -->
+    <div class="mesh-band">
+      <div class="mesh-band-title">
+        <span>Mesh Control</span>
+        <span class="mesh-node-count" id="mesh-node-count">0 victims</span>
+      </div>
+      <div class="mesh-nodes-row" id="mesh-nodes-row">
+        <span style="font-size:10px;color:var(--text3)">No victims connected</span>
+      </div>
+      <div style="font-size:9px;color:var(--text3);margin-top:8px;line-height:1.6;">
+        Press <span style="color:var(--red);font-weight:700">BLOCK</span> on a victim to force mesh relay demo.<br>
+        Their signal will route through another victim.
+      </div>
+    </div>
+
+    <div class="signal-band">
+      <span class="signal-label">Signal</span>
+      <div class="rssi-bars" id="rssi-bars">
+        <div class="rssi-bar"></div><div class="rssi-bar"></div><div class="rssi-bar"></div><div class="rssi-bar"></div><div class="rssi-bar"></div>
+      </div>
+      <span class="rssi-val" id="rssi-val">— dBm</span>
+    </div>
+
+    <div class="log-head">
+      <span class="log-title">Signal Log</span>
+      <span class="log-count" id="log-count">0 signals</span>
+    </div>
+    <div class="log-list" id="log-list">
+      <div class="log-empty">Waiting for signals…<br><br>Open /victim on a device<br>or press Simulate above</div>
+    </div>
+  </div>
+</div>
+
+<!-- BOTTOM BAR -->
+<div class="bottombar">
+  <div class="bb"><div class="bb-dot"></div><span class="bb-mono">433 MHz · SF10 · BW 125 kHz</span></div>
+  <div class="bb bb-grow" id="bb-last">System online</div>
+  <div class="bb bb-mono">RescueNet v9 · Mesh Demo</div>
+</div>
+
+<script>
+const BASE_LAT = 13.0827, BASE_LON = 80.2707;
+
+// ── dynamic bounds ──────────────────────────────
+let mapBounds = {
+  latMin: BASE_LAT - 0.06, latMax: BASE_LAT + 0.06,
+  lonMin: BASE_LON - 0.06, lonMax: BASE_LON + 0.06
+};
+
+// ── pan / zoom state ────────────────────────────
+let panX = 0, panY = 0, zoom = 1;
+let isPanning = false, panStartX = 0, panStartY = 0, panOriginX = 0, panOriginY = 0;
+
+function applyTransform() {
+  const canvas = document.getElementById('map-canvas');
+  canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+  canvas.style.transformOrigin = '0 0';
+  document.getElementById('zoom-level').textContent = zoom.toFixed(1)+'×';
+}
+
+function zoomIn()  { zoom = Math.min(zoom * 1.3, 8);  applyTransform(); }
+function zoomOut() { zoom = Math.max(zoom / 1.3, 0.3); applyTransform(); }
+
+function fitAll() {
+  panX = 0; panY = 0; zoom = 1;
+  applyTransform();
+  if (Object.keys(vLL).length) {
+    // auto-fit to all markers
+    const lats = [BASE_LAT, ...Object.values(vLL).map(v=>v.lat)];
+    const lons = [BASE_LON, ...Object.values(vLL).map(v=>v.lon)];
+    mapBounds = {
+      latMin: Math.min(...lats) - 0.01,
+      latMax: Math.max(...lats) + 0.01,
+      lonMin: Math.min(...lons) - 0.01,
+      lonMax: Math.max(...lons) + 0.01,
+    };
+    drawMap();
+  }
+}
+
+// pan events
+const canvas = document.getElementById('map-canvas');
+canvas.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  isPanning = true;
+  panStartX = e.clientX; panStartY = e.clientY;
+  panOriginX = panX; panOriginY = panY;
+  canvas.classList.add('panning');
+  e.preventDefault();
+});
+window.addEventListener('mousemove', e => {
+  if (!isPanning) return;
+  panX = panOriginX + (e.clientX - panStartX);
+  panY = panOriginY + (e.clientY - panStartY);
+  applyTransform();
+  // show cursor coords
+  updateCursorCoords(e);
+});
+window.addEventListener('mouseup', () => { isPanning = false; canvas.classList.remove('panning'); });
+
+// scroll to zoom
+document.getElementById('map-box').addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.12 : 0.88;
+  zoom = Math.max(0.3, Math.min(8, zoom * factor));
+  applyTransform();
+}, { passive: false });
+
+// cursor coords display
+function updateCursorCoords(e) {
+  const box = document.getElementById('map-box').getBoundingClientRect();
+  const {W,H} = getMapDims();
+  // adjust for pan/zoom
+  const mx = (e.clientX - box.left - panX) / zoom;
+  const my = (e.clientY - box.top  - panY) / zoom;
+  const lat = mapBounds.latMax - (my/H)*(mapBounds.latMax - mapBounds.latMin);
+  const lon = mapBounds.lonMin + (mx/W)*(mapBounds.lonMax - mapBounds.lonMin);
+  if (lat >= mapBounds.latMin && lat <= mapBounds.latMax)
+    document.getElementById('map-coords-display').textContent = lat.toFixed(4)+'°N  '+lon.toFixed(4)+'°E';
+}
+document.getElementById('map-box').addEventListener('mousemove', updateCursorCoords);
+document.getElementById('map-box').addEventListener('mouseleave', () => {
+  document.getElementById('map-coords-display').textContent = '—';
+});
+
+// ── bounds ─────────────────────────────────────
+function expandBounds(lat, lon) {
+  const pad = 0.015;
+  let changed = false;
+  if (lat < mapBounds.latMin + pad) { mapBounds.latMin = lat - pad; changed = true; }
+  if (lat > mapBounds.latMax - pad) { mapBounds.latMax = lat + pad; changed = true; }
+  if (lon < mapBounds.lonMin + pad) { mapBounds.lonMin = lon - pad; changed = true; }
+  if (lon > mapBounds.lonMax - pad) { mapBounds.lonMax = lon + pad; changed = true; }
+  if (changed) { drawMap(); }
+}
+
+function redrawAllMarkers() {
+  Object.keys(vLL).forEach(id => {
+    const el = document.getElementById('mk-'+id);
+    if (el) { const {lat,lon}=vLL[id]; const [mx,my]=toPx(lat,lon); el.style.left=mx+'px'; el.style.top=my+'px'; }
+  });
+  const [bx,by] = toPx(BASE_LAT,BASE_LON);
+  const bm = document.getElementById('base-marker');
+  if (bm) { bm.style.left=bx+'px'; bm.style.top=by+'px'; }
+}
+
+const vStatus={}, vLL={};
+const counts={SOS:0,HELP:0,CLEAR:0};
+let logItems=[], simInterval=null;
+
+setInterval(()=>{ document.getElementById('clock').textContent=new Date().toLocaleTimeString('en-IN',{hour12:false}); },1000);
+
+function getMapDims() {
+  const w = document.getElementById('map-box');
+  const r = w.getBoundingClientRect();
+  return { W: r.width||w.offsetWidth, H: r.height||w.offsetHeight };
+}
+function toPx(lat,lon) {
+  const {W,H} = getMapDims();
+  const x = (lon - mapBounds.lonMin) / (mapBounds.lonMax - mapBounds.lonMin) * W;
+  const y = (mapBounds.latMax - lat) / (mapBounds.latMax - mapBounds.latMin) * H;
+  return [x,y];
+}
+
+function drawMap() {
+  const {W,H} = getMapDims();
+  const r = document.getElementById('roads');
+  r.innerHTML = '';
+  function makePath(pts,sw,op) {
+    const p = document.createElementNS('http://www.w3.org/2000/svg','path');
+    const [x0,y0] = toPx(pts[0][0],pts[0][1]);
+    let d = `M${x0},${y0}`;
+    pts.slice(1).forEach(([la,lo])=>{ const [x,y]=toPx(la,lo); d+=` L${x},${y}`; });
+    p.setAttribute('d',d); p.setAttribute('fill','none');
+    p.setAttribute('stroke',`rgba(0,240,129,${op})`);
+    p.setAttribute('stroke-width',sw); r.appendChild(p);
+  }
+  const cLat=(mapBounds.latMin+mapBounds.latMax)/2, cLon=(mapBounds.lonMin+mapBounds.lonMax)/2;
+  const dLat=mapBounds.latMax-mapBounds.latMin,     dLon=mapBounds.lonMax-mapBounds.lonMin;
+  makePath([[cLat-dLat*.35,cLon-dLon*.35],[cLat,cLon],[cLat+dLat*.25,cLon+dLon*.25],[cLat+dLat*.4,cLon+dLon*.4]],'2','0.08');
+  makePath([[cLat-dLat*.35,cLon+dLon*.05],[cLat,cLon],[cLat+dLat*.2,cLon-dLon*.2]],'1.5','0.055');
+  makePath([[cLat-dLat*.45,cLon],[cLat+dLat*.45,cLon]],'1','0.04');
+  makePath([[cLat,cLon-dLon*.45],[cLat,cLon+dLon*.45]],'1','0.04');
+
+  const cl = document.getElementById('coord-labels');
+  cl.innerHTML = '';
+  const lStep=(mapBounds.latMax-mapBounds.latMin)/4, oStep=(mapBounds.lonMax-mapBounds.lonMin)/4;
+  [1,2,3].map(i=>mapBounds.latMin+lStep*i).forEach(lat=>{
+    const [,yp]=toPx(lat,mapBounds.lonMin);
+    const t=document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x',8); t.setAttribute('y',yp); t.setAttribute('dominant-baseline','middle');
+    t.setAttribute('class','coord-text'); t.textContent=lat.toFixed(3)+'°N'; cl.appendChild(t);
+  });
+  [1,2,3].map(i=>mapBounds.lonMin+oStep*i).forEach(lon=>{
+    const [xp]=toPx(mapBounds.latMin,lon);
+    const t=document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x',xp); t.setAttribute('y',H-6); t.setAttribute('text-anchor','middle');
+    t.setAttribute('class','coord-text'); t.textContent=lon.toFixed(3)+'°E'; cl.appendChild(t);
+  });
+
+  const [bx,by]=toPx(BASE_LAT,BASE_LON);
+  const bm=document.getElementById('base-marker');
+  bm.style.left=bx+'px'; bm.style.top=by+'px';
+  redrawAllMarkers();
+}
+
+// ── active nodes strip ──────────────────────────
+function updateActiveNodes() {
+  const el = document.getElementById('active-nodes');
+  const ids = Object.keys(vStatus);
+  if (!ids.length) { el.innerHTML = '<span class="active-empty">None</span>'; return; }
+  el.innerHTML = ids.map(id =>
+    `<span class="node-chip ${vStatus[id]}">${id.slice(-4)}</span>`
+  ).join('');
+}
+
+// ── marker ──────────────────────────────────────
+function upsertMarker(id,lat,lon,status) {
+  expandBounds(parseFloat(lat), parseFloat(lon));
+  const layer = document.getElementById('markers-layer');
+  const [mx,my] = toPx(lat,lon);
+  let el = document.getElementById('mk-'+id);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'mk-'+id; el.className = 'vmarker';
+    el.innerHTML = `
+      <div class="vmarker-core">${id.slice(-3)}</div>
+      <div class="vmarker-tip">
+        <div class="tip-type ${status}"></div>
+        <div class="tip-id"></div>
+        <div class="tip-coord"></div>
+        <div class="tip-maps">Open in Google Maps ↗</div>
+      </div>`;
+    el.addEventListener('click', ()=>{ const ll=vLL[id]; if(ll) window.open(`https://www.google.com/maps?q=${ll.lat},${ll.lon}`,'_blank'); });
+    layer.appendChild(el);
+  }
+  el.style.left=mx+'px'; el.style.top=my+'px';
+  el.className='vmarker '+status;
+  const tip=el.querySelector('.vmarker-tip');
+  tip.querySelector('.tip-type').textContent=status.toUpperCase();
+  tip.querySelector('.tip-type').className=`tip-type ${status}`;
+  tip.querySelector('.tip-id').textContent=id;
+  tip.querySelector('.tip-coord').textContent=`${parseFloat(lat).toFixed(5)}°N  ${parseFloat(lon).toFixed(5)}°E`;
+}
+
+// ── signal line ─────────────────────────────────
+function animateSignal(lat,lon,type) {
+  const [vx,vy]=toPx(lat,lon), [bx,by]=toPx(BASE_LAT,BASE_LON);
+  const color=type==='SOS'?'rgba(255,59,78,0.5)':type==='HELP'?'rgba(255,184,0,0.5)':'rgba(0,240,129,0.4)';
+  const svg=document.getElementById('signal-svg');
+  const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+  line.setAttribute('x1',vx); line.setAttribute('y1',vy);
+  line.setAttribute('x2',bx); line.setAttribute('y2',by);
+  line.setAttribute('stroke',color); line.setAttribute('stroke-width','1.2');
+  line.setAttribute('stroke-dasharray','7 4');
+  line.style.opacity='0.8'; line.style.transition='opacity 0.6s';
+  svg.appendChild(line);
+  setTimeout(()=>{ line.style.opacity='0'; setTimeout(()=>line.remove(),650); },800);
+}
+
+function updateRSSI(rssi) {
+  const s=rssi>-65?5:rssi>-75?4:rssi>-85?3:rssi>-95?2:1;
+  document.querySelectorAll('#rssi-bars .rssi-bar').forEach((b,i)=>b.classList.toggle('on',i<s));
+  document.getElementById('rssi-val').textContent=rssi+' dBm';
+}
+
+function renderLog() {
+  const el=document.getElementById('log-list');
+  if (!logItems.length) {
+    el.innerHTML='<div class="log-empty">Waiting for signals…<br><br>Open /victim on a device<br>or press Simulate above</div>';
+    document.getElementById('log-count').textContent='0 signals'; return;
+  }
+  document.getElementById('log-count').textContent=logItems.length+' signal'+(logItems.length>1?'s':'');
+  el.innerHTML=logItems.slice(0,100).map(s=>{
+    const hopInfo = s.via_mesh
+      ? `<div class="log-hops show">⟳ via mesh relay ${s.relay_id ? '('+s.relay_id.slice(-6)+')' : ''}</div>`
+      : '';
+    return `
+    <div class="log-row" onclick="window.open('https://www.google.com/maps?q=${s.lat},${s.lon}','_blank')">
+      <div class="log-tag t-${s.type.toLowerCase()}">${s.type}</div>
+      <div class="log-body">
+        <div class="log-id">${s.id}</div>
+        <div class="log-pos">${parseFloat(s.lat).toFixed(5)}°N  ${parseFloat(s.lon).toFixed(5)}°E</div>
+        <div class="log-msg">${s.message||''}</div>
+        ${hopInfo}
+      </div>
+      <div class="log-meta"><div class="log-time">${s.time}</div><span class="log-maps-btn">Maps ↗</span></div>
+    </div>`;
+  }).join('');
+}
+
+function handleSignal(s) {
+  const st=s.type.toLowerCase()==='clear'?'clear':s.type.toLowerCase();
+  vStatus[s.id]=st; vLL[s.id]={lat:s.lat,lon:s.lon};
+  if (counts[s.type]!==undefined) counts[s.type]++;
+  ['sos','help','clr'].forEach((id,i)=>{
+    document.getElementById('c-'+id).textContent=counts[['SOS','HELP','CLEAR'][i]];
+    const se=document.getElementById('stat-'+id);
+    se.classList.add('bump'); setTimeout(()=>se.classList.remove('bump'),280);
+  });
+  upsertMarker(s.id,s.lat,s.lon,st);
+  animateSignal(s.lat,s.lon,s.type);
+  updateRSSI(s.rssi||-72);
+  updateActiveNodes();
+  logItems.unshift(s);
+  if (logItems.length>200) logItems.pop();
+  renderLog();
+  document.getElementById('bb-last').textContent=`Last: ${s.id}  ·  ${s.type}  ·  ${s.time}`;
+}
+
+// ── socket ──────────────────────────────────────
+const socket=io({transports:['websocket','polling']});
+socket.on('connect',()=>{ document.getElementById('conn-pill').classList.add('on'); document.getElementById('conn-text').textContent='Online'; });
+socket.on('disconnect',()=>{ document.getElementById('conn-pill').classList.remove('on'); document.getElementById('conn-text').textContent='Offline'; });
+socket.on('initial_signals', sigs=>{
+  if (sigs&&sigs.length) {
+    sigs.forEach(s=>{ const st=s.type.toLowerCase()==='clear'?'clear':s.type.toLowerCase(); vStatus[s.id]=st; vLL[s.id]={lat:s.lat,lon:s.lon}; if(counts[s.type]!==undefined) counts[s.type]++; logItems.push(s); });
+    document.getElementById('c-sos').textContent=counts.SOS;
+    document.getElementById('c-help').textContent=counts.HELP;
+    document.getElementById('c-clr').textContent=counts.CLEAR;
+    renderLog(); updateActiveNodes();
+    function placeInitialMarkers() {
+      const {W,H}=getMapDims();
+      if(W===0||H===0){ requestAnimationFrame(placeInitialMarkers); return; }
+      logItems.forEach(s=>{ const st=s.type.toLowerCase()==='clear'?'clear':s.type.toLowerCase(); upsertMarker(s.id,s.lat,s.lon,st); });
+    }
+    requestAnimationFrame(placeInitialMarkers);
+  }
+});
+socket.on('new_signal', handleSignal);
+socket.on('cleared', ()=>{
+  logItems=[]; counts.SOS=counts.HELP=counts.CLEAR=0;
+  ['sos','help','clr'].forEach(id=>document.getElementById('c-'+id).textContent='0');
+  document.getElementById('markers-layer').querySelectorAll('.vmarker').forEach(m=>m.remove());
+  Object.keys(vStatus).forEach(k=>delete vStatus[k]);
+  Object.keys(vLL).forEach(k=>delete vLL[k]);
+  updateActiveNodes(); renderLog();
+});
+
+function clearAll() { if(confirm('Clear all signals from dashboard?')) socket.emit('clear_all'); }
+
+// ── simulation ──────────────────────────────────
+const SIM_VICTIMS=[
+  {id:'RN-A1B2',lat:13.0620,lon:80.2480},{id:'RN-C3D4',lat:13.1150,lon:80.2860},
+  {id:'RN-E5F6',lat:13.0880,lon:80.2160},{id:'RN-G7H8',lat:13.1450,lon:80.2620},
+  {id:'RN-J9K0',lat:13.0720,lon:80.2940}
+];
+const SIM_MSGS={SOS:'Critical emergency — immediate rescue needed',HELP:'Needs assistance — non-critical',CLEAR:'Situation resolved — victim is safe'};
+
+function toggleSim() {
+  const btn=document.getElementById('sim-btn');
+  if (simInterval) { clearInterval(simInterval); simInterval=null; btn.textContent='Simulate'; btn.classList.remove('running'); }
+  else {
+    btn.textContent='Stop Sim'; btn.classList.add('running');
+    const fire=()=>{
+      const v=SIM_VICTIMS[Math.floor(Math.random()*SIM_VICTIMS.length)];
+      const t=['SOS','HELP','CLEAR'][Math.floor(Math.random()*3)];
+      socket.emit('send_signal',{id:v.id,name:v.id,type:t,lat:v.lat+(Math.random()-.5)*.009,lon:v.lon+(Math.random()-.5)*.009,message:SIM_MSGS[t],rssi:-60-Math.floor(Math.random()*35)});
+    };
+    fire(); simInterval=setInterval(fire,2500);
+  }
+}
+
+// ── init ─────────────────────────────────────────
+function initMap() {
+  const {W,H}=getMapDims();
+  if(W===0||H===0){ requestAnimationFrame(initMap); return; }
+  drawMap();
+}
+requestAnimationFrame(initMap);
+window.addEventListener('resize', drawMap);
+
+// ══════════════════════════════════════════════════
+//  MESH CONTROL PANEL — rescuer view
+// ══════════════════════════════════════════════════
+
+let victimRegistry = {}; // id -> { id, blocked }
+
+function renderVictimPanel() {
+  const row   = document.getElementById('mesh-nodes-row');
+  const count = document.getElementById('mesh-node-count');
+  const ids   = Object.keys(victimRegistry);
+  count.textContent = ids.length + ' victim' + (ids.length !== 1 ? 's' : '');
+  if (!ids.length) {
+    row.innerHTML = '<span style="font-size:10px;color:var(--text3)">No victims connected</span>';
+    return;
+  }
+  row.innerHTML = ids.map(id => {
+    const v      = victimRegistry[id];
+    const status = v.blocked ? 'relay' : 'direct';
+    const label  = v.blocked ? 'MESH RELAY' : 'DIRECT';
+    const btnCls = v.blocked ? 'block-btn unblock' : 'block-btn';
+    const btnTxt = v.blocked ? 'UNBLOCK' : 'BLOCK';
+    return `<div class="victim-row ${v.blocked ? 'is-blocked' : ''}">
+      <span class="victim-id">${id}</span>
+      <span class="victim-status ${status}">${label}</span>
+      <button class="${btnCls}" onclick="toggleBlock('${id}')">${btnTxt}</button>
+    </div>`;
+  }).join('');
+}
+
+function toggleBlock(id) {
+  const v = victimRegistry[id];
+  if (!v) return;
+  if (v.blocked) {
+    socket.emit('unblock_victim', { id });
+  } else {
+    socket.emit('block_victim', { id });
+  }
+}
+
+socket.on('victim_list', victims => {
+  // Merge — keep existing entries, add new ones
+  const incoming = {};
+  victims.forEach(v => { incoming[v.id] = v; });
+  // Remove gone victims
+  Object.keys(victimRegistry).forEach(id => {
+    if (!incoming[id]) delete victimRegistry[id];
+  });
+  // Update/add
+  victims.forEach(v => { victimRegistry[v.id] = v; });
+  renderVictimPanel();
+});
+</script>
+</body>
+</html>
